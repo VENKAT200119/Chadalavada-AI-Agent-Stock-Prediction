@@ -53,7 +53,7 @@ class FinancialCrew:
 
 
         # Initialize agents
-        research_analyst_agent = ResearchAnalystAgent(llm=gpt_4o_high_tokens)
+        research_analyst_agent = ResearchAnalystAgent(ticker=self.ticker, llm=gpt_4o_high_tokens)
         research_analyst_critic_agent = ResearchAnalysisCriticAgent(llm=gpt_4o_high_tokens)
         bollinger_investment_advisor_agent = BollingerAnalysisAgent(llm=gpt_4o_high_tokens)
         bollinger_buy_sell_agent = BollingerBuySellAgent(ticker=self.ticker, llm=gpt_4o_high_tokens)
