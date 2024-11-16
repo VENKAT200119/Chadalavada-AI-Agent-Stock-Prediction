@@ -1,27 +1,18 @@
 
 import re
+from pydantic import BaseModel, Field
 from textwrap import dedent
 import crewai as crewai
 from datetime import datetime
 import os
 from src.Agents.base_agent import BaseAgent
-import json
-import requests
-from newspaper import Article
-from newspaper.article import ArticleException
-from datetime import datetime
-import platform
-from pydantic import BaseModel, Field, ValidationError
-from typing import List
-from crewai_tools import BaseTool
 from src.Tools.search_news_tool import SearchNewsTool
 
 
-
-class ScenarioInputAgent(BaseAgent):
+class ResearchAnalystAgent(BaseAgent):
     def __init__(self, **kwargs):
         super().__init__(
-            role='Scenario Input Agent',
+            role='Research Analyst Agent',
             goal="Provide comprehensive market scenarios affecting portfolio tickers",
             backstory='An expert in market analysis and reporting',
             tools=[SearchNewsTool()],
@@ -59,7 +50,7 @@ class ScenarioInputAgent(BaseAgent):
         def task_logic():
             # Prepare the prompt for the agent
             prompt = dedent(f"""
-                As the Scenario Input Agent, you are tasked with revising your previous market scenarios report based on the critique provided by the Scenario Input Critic Agent.
+                As the Research Analyst Agent, you are tasked with revising your previous market scenarios report based on the critique provided by the Scenario Input Critic Agent.
                 
                 **Instructions:**
 
@@ -76,11 +67,10 @@ class ScenarioInputAgent(BaseAgent):
 
         return crewai.Task(
             description=dedent("""
-                Revise your previous market scenarios report based on the critique provided by the Scenario Input Critic Agent.
+                Revise your previous market scenarios report based on the critique provided by the Research Analyst Critic Agent.
                 Ensure that all feedback is addressed, and the report is enhanced accordingly.
             """),
             agent=self,
             expected_output="An improved market scenarios report",
             action=task_logic  
         )
-
