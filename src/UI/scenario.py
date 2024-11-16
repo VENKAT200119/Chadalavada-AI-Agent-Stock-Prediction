@@ -5,6 +5,7 @@ for key, value in os.environ.items():
     print(f"{key}: {value}")
 
 import sys
+import traceback
 import logging
 import crewai as crewai
 import langchain_openai as lang_oai
@@ -103,16 +104,18 @@ if __name__ == "__main__":
     try:
         crew_output = scenario_crew.run()
         logging.info("Scenario crew execution run() successfully")
+            # Accessing the crew output
+        print("\n\n########################")
+        print("## Here is the Report")
+        print("########################\n")
+
+        display_crew_output(crew_output)
+
+        print("Collaboration complete")
+        sys.exit(0)
+
     except Exception as e:
         logging.error(f"Error during crew execution: {e}")
+        traceback.print_exc()
         sys.exit(1)
     
-    # Accessing the crew output
-    print("\n\n########################")
-    print("## Here is the Report")
-    print("########################\n")
-
-    display_crew_output(crew_output)
-
-    print("Collaboration complete")
-    sys.exit(0)
