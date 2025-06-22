@@ -144,7 +144,21 @@ class AutoencoderAgent:
 
         print(f"Training complete. Best Val Loss: {best_loss:.6f}. Saved encoder to {best_path}")
 
+    def load_encoder(self, path: str):
+        # SNIF.2.3: Load saved encoder
+        self.model.encoder.load_state_dict(torch.load(path, map_location=self.device))
+        self.model.encoder.to(self.device).eval()
 
+    def extract_embeddings(self, returns_array: torch.Tensor) -> torch.Tensor:
+        # SNIF.2.3: Extract embeddings
+        self.model.eval()
+        with torch.no_grad():
+            return self.model.encode(returns_array.to(self.device)).cpu()
+
+    def save_encoder(self, path: str):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        torch.save(self.model.encoder.state_dict(), path)
+        
 # ----------------------------------
 # Main SNIF Pipeline Invocation
 # ----------------------------------
