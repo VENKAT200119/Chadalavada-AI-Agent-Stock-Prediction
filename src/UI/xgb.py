@@ -205,6 +205,14 @@ def train_model(
     model.load_state_dict(torch.load(ckpt_path))
     return model
 
+# === XGB.3 Embedding Extraction ===
+
+# XGB.3.1 Freeze the trained CNN+Attention+LSTM backbone (#649)
+def freeze_backbone(model: nn.Module):
+    for p in model.cnn.parameters(): p.requires_grad = False
+    for p in model.attn.parameters(): p.requires_grad = False
+    for p in model.lstm.parameters(): p.requires_grad = False
+
 # === Example Usage ===
 if __name__ == '__main__':
     # Prompt the user to enter a stock ticker symbol
