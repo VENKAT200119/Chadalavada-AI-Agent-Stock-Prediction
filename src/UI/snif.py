@@ -158,7 +158,39 @@ class AutoencoderAgent:
     def save_encoder(self, path: str):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save(self.model.encoder.state_dict(), path)
-        
+
+# -----------------------------
+# SNIF.3 Topology Inference
+# -----------------------------
+class TopologyAgent:
+    def __init__(self, threshold: float = 0.7, output_dir: str = "checkpoints/topology"):
+        """
+        SNIF.3.1–3.3: Compute/sparsify similarities, persist adjacency.
+        """
+        self.threshold = threshold
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def compute_similarity(self, embeddings: np.ndarray) -> np.ndarray:
+        # SNIF.3.1: Compute cosine similarities
+        return cosine_similarity(embeddings)
+
+    def sparsify(self, sim_matrix: np.ndarray) -> np.ndarray:
+        # SNIF.3.2: Threshold to binary adjacency, zero self-links
+        adj = (sim_matrix >= self.threshold).astype(float)
+        np.fill_diagonal(adj, 0)
+        return adj
+
+    def persist(self, adjacency: np.ndarray, dates: pd.DatetimeIndex):
+        # SNIF.3.3: Persist adjacency CSVs
+        pd.DataFrame(adjacency, index=dates, columns=dates).to_csv(
+            f"{self.output_dir}/adjacency_full.csv"
+        )
+        for i, dt in enumerate(dates):
+            pd.DataFrame(
+                adjacency[i], index=dates, columns=["edge_weight"]
+            ).to_csv(f"{self.output_dir}/adjacency_{dt.strftime('%Y-%m-%d')}.csv")
+            
 # ----------------------------------
 # Main SNIF Pipeline Invocation
 # ----------------------------------
