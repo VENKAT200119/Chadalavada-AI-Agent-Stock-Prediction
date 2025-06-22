@@ -83,6 +83,66 @@ class Autoencoder(nn.Module):
         return self.encoder(x)
 
 
+class AutoencoderAgent:
+    def __init__(self, input_dim: int, latent_dim: int = 32,
+                 lr: float = 1e-3, batch_size: int = 64, epochs: int = 50,
+                 device: str = None):
+        """
+        SNIF.2.1–2.3: Build, train autoencoder, save encoder weights.
+        """
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = Autoencoder(input_dim, latent_dim).to(self.device)
+        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.batch_size = batch_size
+        self.epochs = epochs
+
+    def _prepare_dataloaders(self, tensor: torch.Tensor, val_split: float = 0.2):
+        dataset = TensorDataset(tensor)
+        val_size = int(len(dataset) * val_split)
+        train_size = len(dataset) - val_size
+        train_ds, val_ds = random_split(dataset, [train_size, val_size])
+        train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True)
+        val_loader = DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)
+        return train_loader, val_loader
+
+    def train(self, returns_array: torch.Tensor,
+              val_split: float = 0.2, checkpoint_dir: str = "checkpoints/autoencoder"):
+        returns_array = returns_array.to(self.device)
+        train_loader, val_loader = self._prepare_dataloaders(returns_array, val_split)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        best_loss = float('inf')
+        best_path = os.path.join(checkpoint_dir, "best_encoder.pth")
+
+        for epoch in range(1, self.epochs + 1):
+            # Training
+            self.model.train()
+            train_loss = 0.0
+            for (batch,) in train_loader:
+                batch = batch.to(self.device)
+                self.optimizer.zero_grad()
+                recon = self.model(batch)
+                loss = self.criterion(recon, batch)
+                loss.backward()
+                self.optimizer.step()
+                train_loss += loss.item() * batch.size(0)
+            train_loss /= len(train_loader.dataset)
+
+            # Validation
+            self.model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for (batch,) in val_loader:
+                    batch = batch.to(self.device)
+                    val_loss += self.criterion(self.model(batch), batch).item() * batch.size(0)
+            val_loss /= len(val_loader.dataset)
+
+            print(f"Epoch {epoch}/{self.epochs}  Train Loss: {train_loss:.6f}  Val Loss: {val_loss:.6f}")
+            if val_loss < best_loss:
+                best_loss = val_loss
+                torch.save(self.model.encoder.state_dict(), best_path)
+
+        print(f"Training complete. Best Val Loss: {best_loss:.6f}. Saved encoder to {best_path}")
 
 
 # ----------------------------------
