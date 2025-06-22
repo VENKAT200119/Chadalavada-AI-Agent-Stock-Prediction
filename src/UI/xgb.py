@@ -236,46 +236,43 @@ def extract_and_save_embeddings(
     df_out['label'] = labs
     df_out.to_csv(output_file, index=False)
     print(f"Saved embeddings -> {output_file}")
-
-# === Example Usage ===
+# === Main Script ===
 if __name__ == '__main__':
-    # Prompt the user to enter a stock ticker symbol
-    ticker_input = input("Enter a stock ticker symbol (e.g., AAPL): ").strip().upper()
-    if not ticker_input:
-        print("No ticker provided. Exiting.")
-        exit(1)
-
-    # Prompt for start and end dates
-    start_date = input("Enter start date (YYYY-MM-DD): ").strip()
-    end_date = input("Enter end date (YYYY-MM-DD): ").strip()
+    # User inputs
+    ticker = input("Enter stock ticker (e.g., AAPL): ").strip().upper()
+    if not ticker:
+        print("Ticker required."); exit(1)
+    start = input("Start date (YYYY-MM-DD): ").strip()
+    end   = input("End date   (YYYY-MM-DD): ").strip()
     try:
-        # Validate basic format
-        pd.to_datetime(start_date)
-        pd.to_datetime(end_date)
-    except Exception:
-        print("Invalid date format. Please use YYYY-MM-DD. Exiting.")
-        exit(1)
+        pd.to_datetime(start); pd.to_datetime(end)
+    except:
+        print("Bad date format."); exit(1)
 
-    tickers = [ticker_input]
-    features = ['Open', 'High', 'Low', 'Close', 'Volume']
-    window_size = 20
+    # Parameters
+    features = ['Open','High','Low','Close','Volume']
+    win_size = 20
 
-    # 1. Fetch OHLCV data
-    df = fetch_ohlcv(tickers, start=start_date, end=end_date)
-
-    # 2. Impute missing values
-    df = preprocess_data(df, method='ffill')
-
-    # 3. Normalize features
+    # XGB.1 pipeline
+    df = fetch_ohlcv([ticker], start, end)
+    df = preprocess_data(df)
     df = normalize_features(df, features)
-
-    # 4. Slice into windows and generate labels
-    X, y = slice_windows(df, features, window_size)
-
-    # 5. Split into train/val/test
+    X, y = slice_windows(df, features, win_size)
     splits = train_val_test_split(X, y, val_ratio=0.2, test_ratio=0.1, shuffle=True)
 
-    print("\nShapes:")
-    print("  Train X:", splits['train'][0].shape, " Train y:", splits['train'][1].shape)
-    print("  Val   X:", splits['val'][0].shape,   " Val   y:", splits['val'][1].shape)
-    print("  Test  X:", splits['test'][0].shape,  " Test  y:", splits['test'][1].shape)
+    # DataLoaders
+    batch = 64
+    dl = {k: DataLoader(WindowDataset(*splits[k]), batch_size=batch,
+                        shuffle=(k=='train')) for k in splits}
+
+    # XGB.2 pretraining
+    dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = CNNAttentionLSTM(num_features=len(features))
+    model = train_model(model, dl, dev)
+
+    # XGB.3 embedding extraction
+    freeze_backbone(model)
+    X_all = np.vstack([splits[k][0] for k in splits])
+    y_all = np.concatenate([splits[k][1] for k in splits])
+    full_ds = WindowDataset(X_all, y_all)
+    extract_and_save_embeddings(model, full_ds, dev)
