@@ -4,8 +4,14 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from typing import List, Tuple, Dict
 
-# === Data Ingestion & Windowing ===
+# PyTorch imports for CNN-Attention-LSTM
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from torch.optim import Adam
 
+# === XGB.1 Data Ingestion & Windowing ===
+# XGB.1.1 Fetch OHLCV for target tickers via yfinance (#604)
 def fetch_ohlcv(tickers: List[str], start: str, end: str, interval: str = '1d') -> pd.DataFrame:
     """
     Fetch OHLCV data for given tickers from yfinance.
@@ -22,6 +28,7 @@ def fetch_ohlcv(tickers: List[str], start: str, end: str, interval: str = '1d') 
     df.set_index(['Ticker', 'Date'], inplace=True)
     return df
 
+# XGB.1.2 Impute or drop missing data; align timestamps (#605)
 def preprocess_data(df: pd.DataFrame, method: str = 'ffill') -> pd.DataFrame:
     """
     Impute or drop missing data. 
@@ -36,6 +43,7 @@ def preprocess_data(df: pd.DataFrame, method: str = 'ffill') -> pd.DataFrame:
     df = df.dropna()
     return df
 
+# XGB.1.3 Normalize features (e.g., z-score) (#606)
 def normalize_features(df: pd.DataFrame, features: List[str]) -> pd.DataFrame:
     """
     Z-score normalization for each ticker separately over the specified feature columns.
@@ -47,6 +55,7 @@ def normalize_features(df: pd.DataFrame, features: List[str]) -> pd.DataFrame:
         df_norm.loc[idx, features] = scaler.fit_transform(df.loc[idx, features])
     return df_norm
 
+# XGB.1.4 Slice into overlapping windows & create train/val/test splits (#607)
 def slice_windows(
     df: pd.DataFrame,
     features: List[str],
@@ -96,6 +105,53 @@ def train_val_test_split(
         'test': (X[test_idx], y[test_idx])
     }
 
+# === PyTorch Dataset ===
+class WindowDataset(Dataset):
+    def __init__(self, X: np.ndarray, y: np.ndarray):
+        self.X = torch.from_numpy(X).float()
+        self.y = torch.from_numpy(y).float().unsqueeze(1)
+    def __len__(self):
+        return len(self.X)
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+# === XGB.2 CNN-Attention-LSTM Pretraining ===
+
+# XGB.2.1 Implement 1D-CNN encoder (#644)
+# XGB.2.2 Add self-attention layer over time steps (#645)
+# XGB.2.3 Stack an LSTM decoder with regression head (#646)
+class CNNAttentionLSTM(nn.Module):
+    def __init__(self, num_features: int, cnn_channels: int = 32,
+                 lstm_hidden: int = 64, attn_heads: int = 4):
+        super().__init__()
+        # 1D CNN
+        self.cnn = nn.Sequential(
+            nn.Conv1d(num_features, cnn_channels, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(cnn_channels, cnn_channels, kernel_size=3, padding=1),
+            nn.ReLU()
+        )
+        # Self-attention
+        self.attn = nn.MultiheadAttention(embed_dim=cnn_channels,
+                                          num_heads=attn_heads,
+                                          batch_first=True)
+        # LSTM decoder
+        self.lstm = nn.LSTM(input_size=cnn_channels,
+                            hidden_size=lstm_hidden,
+                            batch_first=True)
+        # Regression head
+        self.head = nn.Linear(lstm_hidden, 1)
+
+    def forward(self, x):
+        # x: [batch, time, features]
+        x = x.transpose(1, 2)               # -> [batch, features, time]
+        x = self.cnn(x)                    # -> [batch, chan, time]
+        x = x.transpose(1, 2)              # -> [batch, time, chan]
+        x, _ = self.attn(x, x, x)          # -> [batch, time, chan]
+        out, (h, _) = self.lstm(x)         # h: [1, batch, hidden]
+        emb = h[-1]                        # -> [batch, hidden]
+        return self.head(emb), emb         # (pred, embedding)
+    
 # === Example Usage ===
 if __name__ == '__main__':
     # Prompt the user to enter a stock ticker symbol
