@@ -213,6 +213,30 @@ def freeze_backbone(model: nn.Module):
     for p in model.attn.parameters(): p.requires_grad = False
     for p in model.lstm.parameters(): p.requires_grad = False
 
+# XGB.3.2 & XGB.3.3 Forward windows, extract embeddings, save to disk (#650, #651)
+def extract_and_save_embeddings(
+    model: nn.Module,
+    dataset: Dataset,
+    device: torch.device,
+    output_file: str = 'embeddings_labels.csv'
+):
+    loader = DataLoader(dataset, batch_size=64, shuffle=False)
+    embs, labs = [], []
+    model.to(device).eval()
+    with torch.no_grad():
+        for Xb, yb in loader:
+            Xb = Xb.to(device)
+            _, e = model(Xb)
+            embs.append(e.cpu().numpy())
+            labs.append(yb.numpy())
+    embs = np.vstack(embs)
+    labs = np.concatenate(labs)
+    cols = [f"emb_{i}" for i in range(embs.shape[1])]
+    df_out = pd.DataFrame(embs, columns=cols)
+    df_out['label'] = labs
+    df_out.to_csv(output_file, index=False)
+    print(f"Saved embeddings -> {output_file}")
+
 # === Example Usage ===
 if __name__ == '__main__':
     # Prompt the user to enter a stock ticker symbol
