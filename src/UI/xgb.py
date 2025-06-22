@@ -151,7 +151,60 @@ class CNNAttentionLSTM(nn.Module):
         out, (h, _) = self.lstm(x)         # h: [1, batch, hidden]
         emb = h[-1]                        # -> [batch, hidden]
         return self.head(emb), emb         # (pred, embedding)
-    
+
+# XGB.2.4 Write training loop with loss, optimizer, checkpointing, early stopping (#647)
+# XGB.2.5 Log metrics and save best model (#648)
+def train_model(
+    model: nn.Module,
+    dataloaders: Dict[str, DataLoader],
+    device: torch.device,
+    lr: float = 1e-3,
+    epochs: int = 50,
+    patience: int = 5,
+    ckpt_path: str = 'best_model.pt'
+) -> nn.Module:
+    criterion = nn.MSELoss()
+    optimizer = Adam(model.parameters(), lr=lr)
+    best_val = float('inf')
+    wait = 0
+    model.to(device)
+
+    for epoch in range(1, epochs+1):
+        # train
+        model.train()
+        tr_losses = []
+        for Xb, yb in dataloaders['train']:
+            Xb, yb = Xb.to(device), yb.to(device)
+            optimizer.zero_grad()
+            pred, _ = model(Xb)
+            loss = criterion(pred, yb)
+            loss.backward()
+            optimizer.step()
+            tr_losses.append(loss.item())
+        # val
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for Xb, yb in dataloaders['val']:
+                Xb, yb = Xb.to(device), yb.to(device)
+                pred, _ = model(Xb)
+                val_losses.append(criterion(pred, yb).item())
+        tr_avg = np.mean(tr_losses)
+        val_avg = np.mean(val_losses)
+        print(f"Epoch {epoch:02d} | Train {tr_avg:.4f} | Val {val_avg:.4f}")
+        if val_avg < best_val:
+            best_val = val_avg
+            torch.save(model.state_dict(), ckpt_path)
+            wait = 0
+        else:
+            wait += 1
+            if wait >= patience:
+                print("Early stopping.")
+                break
+
+    model.load_state_dict(torch.load(ckpt_path))
+    return model
+
 # === Example Usage ===
 if __name__ == '__main__':
     # Prompt the user to enter a stock ticker symbol
