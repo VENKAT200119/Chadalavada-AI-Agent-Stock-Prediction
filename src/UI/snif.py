@@ -190,7 +190,7 @@ class TopologyAgent:
             pd.DataFrame(
                 adjacency[i], index=dates, columns=["edge_weight"]
             ).to_csv(f"{self.output_dir}/adjacency_{dt.strftime('%Y-%m-%d')}.csv")
-            
+
 # ----------------------------------
 # Main SNIF Pipeline Invocation
 # ----------------------------------
@@ -225,3 +225,10 @@ if __name__ == "__main__":
     embeddings = ae_agent.extract_embeddings(returns_tensor).numpy()
     dates = cleaned.index
 
+    # SNIF.3
+    topo_agent = TopologyAgent(threshold=0.7)
+    sim_matrix = topo_agent.compute_similarity(embeddings)
+    adjacency = topo_agent.sparsify(sim_matrix)
+    topo_agent.persist(adjacency, dates)
+
+    print("\n✅ Full SNIF pipeline completed.")
