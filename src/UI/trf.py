@@ -223,3 +223,5 @@ if __name__ == '__main__':
     embedder = EmbeddingAgent(transformer)
     embedder.extract(train_loader, output_csv='embeddings.csv')
     embedder.validate('embeddings.csv', emb_dim=2)  # 2 logits used as embedding size
+
+    
