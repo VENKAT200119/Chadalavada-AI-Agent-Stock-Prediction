@@ -11,13 +11,17 @@ import pandas as pd
 import joblib
 import time
 import pickle
+import json
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.metrics import accuracy_score
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+import openai   # NQR.4: Crew AI integration
 
 # Optional ANFIS import
 try:
@@ -101,7 +105,6 @@ class RatioCalc:
 ######################################
 # NQR.2 Model Training Pipeline
 ######################################
-
 class ModelTrain:
     """
     Train Feed-Forward NN, Random Forest, and ANFIS models.
@@ -127,9 +130,11 @@ class ModelTrain:
         y_train_t = torch.tensor(y_train.reshape(-1, 1), dtype=torch.float32)
         X_val_t = torch.tensor(X_val, dtype=torch.float32)
         y_val_t = torch.tensor(y_val.reshape(-1, 1), dtype=torch.float32)
+
         model = ModelTrain.FeedForwardNN(X.shape[1])
         criterion = nn.BCELoss()
         optimizer = optim.Adam(model.parameters(), lr=lr)
+
         for _ in range(epochs):
             model.train()
             optimizer.zero_grad()
@@ -137,11 +142,13 @@ class ModelTrain:
             loss = criterion(outputs, y_train_t)
             loss.backward()
             optimizer.step()
+
         model.eval()
         with torch.no_grad():
             preds = model(X_val_t)
             preds_cls = (preds.numpy() >= 0.5).astype(int)
             val_acc = accuracy_score(y_val, preds_cls)
+
         return model, val_acc
 
     def train_rf(self, X, y):
@@ -181,14 +188,12 @@ class ModelTrain:
 ######################################
 # NQR.3 Inference API Development
 ######################################
-
 class ModelInferAgent:
     """
     Load trained models and perform inference, outputting JSON.
     """
     def __init__(self, fnn_path, rf_path, anfis_path=None):
         # NQR.3.1: Load FNN, RF, (and ANFIS if provided)
-        # Note: set weights_only=False if using PyTorch 2.6+ without default globals
         self.fnn = torch.load(fnn_path, map_location='cpu', weights_only=False)
         self.fnn.eval()
         self.rf = joblib.load(rf_path)
@@ -213,6 +218,76 @@ class ModelInferAgent:
             print(f"Warning: inference latency {latency:.3f}s exceeds 1s")
         return {"fnn_prob": fnn_prob, "rf_prob": rf_prob, "anfis_prob": anfis_prob}
 
+######################################
+# NQR.4 Crew AI Decision Agent
+######################################
+class CrewAIDecisionAgent:
+    """
+    NQR.4 Crew AI Decision Agent using GPT-4o for majority-vote or threshold rules.
+    """
+    def __init__(
+        self,
+        model_name: str = "gpt-4o",
+        threshold: float = 0.5,
+        role: str = "financial decision-maker",
+        goal: str = "Apply majority-vote or threshold rules to decide trade action.",
+        backstory: str = "You are a Crew AI agent specialized in combining multiple model probabilities into a single buy/hold/sell decision."
+    ):
+        self.model_name = model_name
+        self.threshold = threshold
+        self.role = role
+        self.goal = goal
+        self.backstory = backstory
+
+    def decide(self, fnn_prob: float, rf_prob: float, anfis_prob: float = None) -> dict:
+        """
+        NQR.4.1 & NQR.4.2:
+        - Build system + user messages embedding role, goal, backstory.
+        - Instruct GPT-4o to count buy/sell signals via threshold and apply majority vote.
+        - Return JSON { decision, explanation }.
+        """
+        system_msg = {
+            "role": "system",
+            "content": (
+                f"Backstory: {self.backstory}\n"
+                f"Role: {self.role}\n"
+                f"Goal: {self.goal}"
+            )
+        }
+
+        user_prompt = (
+            f"You are given the following model probabilities:\n"
+            f"- FNN: {fnn_prob}\n"
+            f"- RF: {rf_prob}\n"
+            f"- ANFIS: {anfis_prob if anfis_prob is not None else 'N/A'}\n\n"
+            f"Use threshold = {self.threshold}.\n"
+            f"Count each probability > threshold as a BUY signal, < threshold as a SELL signal.\n"
+            f"Apply majority vote:\n"
+            f"- If 2 or more BUY signals → decision = BUY\n"
+            f"- If 2 or more SELL signals → decision = SELL\n"
+            f"- Otherwise → decision = HOLD\n\n"
+            f"Respond in strict JSON format:\n"
+            f'{{"decision": "<BUY|SELL|HOLD>", "explanation": "your reasoning here"}}'
+        )
+        user_msg = {"role": "user", "content": user_prompt}
+
+        response = openai.ChatCompletion.create(
+            model=self.model_name,
+            messages=[system_msg, user_msg],
+            temperature=0.0
+        )
+        content = response.choices[0].message.content
+
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            result = {"decision": content.strip(), "explanation": ""}
+
+        return result
+
+######################################
+# MAIN
+######################################
 if __name__ == "__main__":
     # Interactive demo of the full pipeline
     if len(sys.argv) > 1:
@@ -246,7 +321,25 @@ if __name__ == "__main__":
             pickle.dump(anfis_model, f)
 
     # NQR.3: Load and run inference
-    infer_agent = ModelInferAgent('fnn_model.pt', 'rf_model.pkl', 'anfis_model.pkl' if anfis_acc else None)
+    infer_agent = ModelInferAgent(
+        'fnn_model.pt',
+        'rf_model.pkl',
+        'anfis_model.pkl' if anfis_acc else None
+    )
     sample_features = [r['roe'] or 0 for r in ratios][:3]
     result = infer_agent.infer(sample_features)
     print("Inference Output:", result)
+
+    # NQR.4: Crew AI Decision Agent tests
+    crew_decider = CrewAIDecisionAgent(threshold=0.5)
+    test_cases = [
+        {"fnn": 0.6, "rf": 0.7, "anfis": 0.8},  # all above threshold → BUY
+        {"fnn": 0.4, "rf": 0.3, "anfis": 0.2},  # all below threshold → SELL
+        {"fnn": 0.6, "rf": 0.4, "anfis": 0.5},  # mixed → HOLD
+    ]
+    for case in test_cases:
+        decision = crew_decider.decide(case["fnn"], case["rf"], case["anfis"])
+        print(
+            f"Probs={case} → Decision: {decision['decision']} | "
+            f"Explanation: {decision['explanation']}"
+        )
